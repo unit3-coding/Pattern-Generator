@@ -388,5 +388,5 @@ function windowResized() {
   if (!animating) redraw();
 }
 function keyPressed() {
-  if(key==='s'||key==='S') saveCanvas('rings','png');
+  if(key==='q'||key==='q') saveCanvas('rings','png');
 }
