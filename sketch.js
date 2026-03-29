@@ -4,20 +4,20 @@
 
 // ── UI refs ──────────────────────────────────────────
 let sl_thick, sl_density, sl_rings, sl_deadzone;
-let sl_center, sl_cx, sl_cy, sl_scale;
+let sl_center, sl_cx, sl_cy, sl_scale, sl_rotation;
 let sl_speed, sl_intro;
 let colorPicker;
 
 // ── Default values (for reset) ───────────────────────
 const DEF = {
   thick:8, density:4, rings:6, deadzone:80,
-  center:30, cx:0, cy:0, scale:100,
+  center:30, cx:0, cy:0, scale:100, rotation:0,
   speed:5, intro:90,
   color:'#00ff78'
 };
 
-// ── Pattern state ────────────────────────────────────
-let gapsList = [], patSeed = 1;
+// زوايا دوران الحلقات (تتراكم مع الوقت)
+let ringAngles = {}; // key = baseIndex → زاوية مراكمة
 
 // ── Anim state ───────────────────────────────────────
 let animating = false, animStartFrame = 0, paused = false;
@@ -27,7 +27,7 @@ let offset = 0, allRings = [], extraCount = 0;
 
 // ── Computed values ──────────────────────────────────
 let THICK, N, NG, MING, MAXG, SPD, CENTER_R, INTRO, DENSITY;
-let CX_OFF, CY_OFF, RING_COLOR, DEADZONE, SCALE;
+let CX_OFF, CY_OFF, RING_COLOR, DEADZONE, SCALE, ROT_SPD;
 
 function rd() {
   THICK    = sl_thick    ? sl_thick.value() * 10  : DEF.thick * 10;
@@ -42,6 +42,7 @@ function rd() {
   CX_OFF   = sl_cx       ? sl_cx.value()           : DEF.cx;
   CY_OFF   = sl_cy       ? sl_cy.value()           : DEF.cy;
   SCALE    = sl_scale    ? sl_scale.value() / 100  : 1;
+  ROT_SPD  = sl_rotation ? sl_rotation.value() * 0.002 : 0;
   DEADZONE = sl_deadzone ? sl_deadzone.value()/100  : 1;
   RING_COLOR = colorPicker ? colorPicker.value() : DEF.color;
 }
@@ -49,6 +50,7 @@ function rd() {
 // ════════════════════════════════════════════════════
 function setup() {
   createCanvas(windowWidth, windowHeight);
+  frameRate(60);
   angleMode(DEGREES);
   buildUI();
   genPattern();
@@ -117,16 +119,17 @@ function buildUI() {
   });
 
   mkSection(panel, 'TRANSFORM', [
-    ['Center R',   'sl_center', 5,  200, DEF.center, 1],
-    ['Scale',      'sl_scale',  10, 300, DEF.scale,  1],
-    ['Position X', 'sl_cx',   -500, 500, DEF.cx,     1],
-    ['Position Y', 'sl_cy',   -500, 500, DEF.cy,     1],
+    ['Center R',   'sl_center',   5,  200, DEF.center,   1],
+    ['Scale',      'sl_scale',   10,  300, DEF.scale,    1],
+    ['Position X', 'sl_cx',    -500,  500, DEF.cx,       1],
+    ['Position Y', 'sl_cy',    -500,  500, DEF.cy,       1],
   ], { center: DEF.center, scale: DEF.scale, cx: DEF.cx, cy: DEF.cy });
 
   mkSection(panel, 'ANIMATION', [
-    ['Speed',      'sl_speed', 1,  10, DEF.speed, 1],
-    ['Trim Speed', 'sl_intro', 10,180, DEF.intro, 1],
-  ], { speed: DEF.speed, intro: DEF.intro });
+    ['Speed',          'sl_speed',    1,  10, DEF.speed,    1],
+    ['Trim Speed',     'sl_intro',   10, 180, DEF.intro,    1],
+    ['Rotation Speed', 'sl_rotation', 0, 100, DEF.rotation, 1],
+  ], { speed: DEF.speed, intro: DEF.intro, rotation: DEF.rotation });
 
   mkSection(panel, 'EXPORT', [['export']], {});
 
@@ -177,6 +180,7 @@ function buildUI() {
     sl_deadzone.value(DEF.deadzone);
     sl_center.value(DEF.center);
     sl_scale.value(DEF.scale);
+    if (sl_rotation) sl_rotation.value(DEF.rotation);
     sl_cx.value(DEF.cx);
     sl_cy.value(DEF.cy);
     sl_speed.value(DEF.speed);
@@ -249,6 +253,7 @@ function mkSection(panel, title, fields, defaults) {
       if (varName === 'sl_deadzone') sl_deadzone = sl;
       if (varName === 'sl_center')   sl_center   = sl;
       if (varName === 'sl_scale')    sl_scale    = sl;
+      if (varName === 'sl_rotation') sl_rotation = sl;
       if (varName === 'sl_cx')       sl_cx       = sl;
       if (varName === 'sl_cy')       sl_cy       = sl;
       if (varName === 'sl_speed')    sl_speed    = sl;
@@ -282,21 +287,27 @@ function mkColorRow(parent) {
 
   colorPicker = createColorPicker('#00ff78');
   colorPicker.parent(row);
-  colorPicker.style('width:34px;height:26px;border-radius:6px;border:1px solid #00ff7840;cursor:pointer;padding:2px;background:none;');
+  colorPicker.style(`
+    width:32px; height:32px; border-radius:6px;
+    border:1px solid #00ff7840; cursor:pointer;
+    padding:0; background:none; flex-shrink:0;
+  `);
 
   let hex = createElement('input'); hex.parent(row);
   hex.attribute('type','text');
   hex.attribute('value','#00ff78');
   hex.attribute('maxlength','7');
   hex.attribute('class','pg-hex');
-  hex.style(`flex:1;background:rgba(0,255,120,0.05);border:1px solid #00ff7830;
-    border-radius:6px;color:#00ff78;font-family:'Space Grotesk',monospace;
-    font-size:11px;padding:4px 8px;`);
+  hex.style(`
+    width:76px; background:rgba(0,255,120,0.05);
+    border:1px solid #00ff7830; border-radius:6px;
+    color:#00ff78; font-family:'Space Grotesk',monospace;
+    font-size:11px; padding:4px 8px; flex-shrink:0;
+  `);
 
   colorPicker.input(() => {
     hex.elt.value = colorPicker.value();
     if (!animating) redraw();
-    // أثناء الحركة يعمل تلقائياً لأن loop() شغال
   });
   hex.input(() => {
     let v = hex.elt.value;
@@ -308,24 +319,34 @@ function mkColorRow(parent) {
 }
 
 // ── Export row ───────────────────────────────────────
+
+
 function mkExportRow(parent) {
   let col = createDiv(''); col.parent(parent);
   col.style('display:flex;flex-direction:column;gap:7px;');
 
-  let hint = createDiv('Export current frame or animation');
+  let hint = createDiv('Export current view');
   hint.parent(col);
   hint.style('font-size:10px;color:#00ff7855;');
 
   let row1 = createDiv(''); row1.parent(col);
   row1.style('display:flex;gap:7px;');
 
-  mkBtn(row1, 'PNG', '#00ff7822', '#00ff78', () => saveCanvas('pattern','png'));
+  mkBtn(row1, 'PNG', '#00ff7822', '#00ff78', exportPNG);
   mkBtn(row1, 'SVG', '#00ff7822', '#00ff78', exportSVG);
 
   let row2 = createDiv(''); row2.parent(col);
   row2.style('display:flex;gap:7px;');
 
-  mkBtn(row2, 'GIF (frames)', '#00ff7822', '#00ff78', exportGIFFrames);
+  // GIF button — يسجل 3 ثوان
+  let gifBtn = mkBtn(row2, '⏺  Record Video', '#00ff7822', '#00ff78', () => {
+    if (!animating) {
+      alert('Start animation first, then record GIF.');
+      return;
+    }
+    if (gifRecording) return;
+    startGIFRecording(gifBtn);
+  });
 }
 
 // ── Slider ───────────────────────────────────────────
@@ -343,12 +364,10 @@ function mkSlider(par, lbl, mn, mx, val, step) {
       if (lbl === 'Deadzone') {
         for (let ring of allRings) { if (ring.birth < 0) ring.alphaStart = undefined; }
       } else if (lbl === 'Rings' || lbl === 'Density') {
-        // أعد بناء الـ pattern بنفس الـ seed مع القيم الجديدة
         rd();
         randomSeed(patSeed);
         gapsList = [];
         for (let i=0; i<N; i++) gapsList.push(mkGaps());
-        // حدّث الحلقات الأصلية في allRings
         for (let ring of allRings) {
           if (ring.birth < 0 && ring.baseIndex >= 0 && ring.baseIndex < gapsList.length) {
             ring.gaps = gapsList[ring.baseIndex];
@@ -356,9 +375,11 @@ function mkSlider(par, lbl, mn, mx, val, step) {
           }
         }
       }
-      // Color, Speed, Thickness, Center R, Position X/Y → تعمل تلقائياً
+      // باقي السلايدرات تعمل تلقائياً أثناء الأنيميشن
     } else {
-      if (lbl !== 'Deadzone') genPattern();
+      // وضع ثابت — الدوران لا يعمل هنا
+      if (lbl !== 'Deadzone' && lbl !== 'Rotation Speed') genPattern();
+      noLoop();
       redraw();
     }
   });
@@ -383,6 +404,7 @@ function genPattern() {
   gapsList = [];
   randomSeed(patSeed);
   for (let i=0; i<N; i++) gapsList.push(mkGaps());
+  ringAngles = {};
 }
 
 function mkGaps() {
@@ -401,6 +423,10 @@ function mkGaps() {
 // ════════════════════════════════════════════════════
 //  DRAW HELPERS
 // ════════════════════════════════════════════════════
+function easeInOut(t) {
+  return t < 0.5 ? 2*t*t : 1 - pow(-2*t+2,2)/2;
+}
+
 function safeArc(cx,cy,d,s,e) {
   let span = e-s;
   if (span < 0.5) return;
@@ -434,8 +460,25 @@ function drawRing(cx,cy,r,gaps,sw,alpha,progress,rotation) {
   }
 }
 
-function easeInOut(t) {
-  return t<0.5?2*t*t:1-pow(-2*t+2,2)/2;
+// معامل دوران عشوائي لكل حلقة — مبني على baseIndex
+// يعطي قيم بين -1 و 1 بشكل مختلف لكل حلقة
+function getRingFactor(idx) {
+  // قيم موجبة فقط (عقارب الساعة) — مختلفة لكل حلقة بين 0.3 و 1.0
+  return 0.3 + abs(sin(idx * 127.1 + 1.5)) * 0.7;
+}
+
+function updateRingAngles() {
+  let spd = sl_rotation ? sl_rotation.value() * 0.003 : 0;
+  if (spd === 0) return;
+  for (let i=0; i<gapsList.length; i++) {
+    if (ringAngles[i] === undefined) ringAngles[i] = 0;
+    ringAngles[i] += spd * getRingFactor(i);
+  }
+  for (let ring of allRings) {
+    let k = ring.baseIndex;
+    if (ringAngles[k] === undefined) ringAngles[k] = 0;
+    ringAngles[k] += spd * getRingFactor(k);
+  }
 }
 
 // ════════════════════════════════════════════════════
@@ -453,21 +496,22 @@ function draw() {
   scale(SCALE);
   translate(-cx, -cy);
 
+  if (!paused && animating) updateRingAngles();
+
   if (!animating) {
     // ── Static ────────────────────────────────────
     let maxR = max(
       dist(cx,cy,0,0), dist(cx,cy,width,0),
       dist(cx,cy,0,height), dist(cx,cy,width,height)
     ) * 1.1;
-    // DEADZONE=1 → fadeStart=maxR*1.1 (لا fade أبداً)
-    // DEADZONE=0 → fadeStart=0 (كل شيء يختفي من المركز)
     let fadeStart = maxR * DEADZONE;
 
     for (let i=0;i<gapsList.length;i++) {
       let r=CENTER_R+THICK/2+i*THICK;
       let alpha = DEADZONE >= 1 ? 255 : (r > fadeStart ? map(r, fadeStart, maxR, 255, 0) : 255);
       alpha = constrain(alpha, 0, 255);
-      drawRing(cx,cy,r,gapsList[i],sw,alpha,1,0);
+      let rotOff = ringAngles[i] || 0;
+      drawRing(cx,cy,r,gapsList[i],sw,alpha,1,rotOff);
     }
   } else {
     // ── Animate ───────────────────────────────────
@@ -520,8 +564,9 @@ function draw() {
       let age    = ring.birth<0 ? INTRO+1 : (frameCount-ring.birth);
       let introT = constrain(age/INTRO,0,1);
       let easedT = easeInOut(introT);
+      let rotOff = ringAngles[ring.baseIndex] || 0;
 
-      drawRing(cx,cy,r,ring.gaps,sw, min(easedT*255,alphaOut), easedT, -(1-easedT)*25);
+      drawRing(cx,cy,r,ring.gaps,sw, min(easedT*255,alphaOut), easedT, -(1-easedT)*25 + rotOff);
     }
   }
 
@@ -554,44 +599,181 @@ function stopAnim() {
 // ════════════════════════════════════════════════════
 //  EXPORT
 // ════════════════════════════════════════════════════
-function exportSVG() {
+
+// ── PNG بخلفية شفافة ─────────────────────────────────
+function exportPNG() {
   rd();
-  let cx=width/2+CX_OFF, cy=height/2+CY_OFF;
-  let sw=THICK+1;
-  let svgParts = [
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">`,
-    `<rect width="${width}" height="${height}" fill="#05051a"/>`,
-  ];
+  let cx = width/2+CX_OFF, cy = height/2+CY_OFF;
+  let sw = THICK+1;
+  let maxR = max(dist(cx,cy,0,0),dist(cx,cy,width,0),dist(cx,cy,0,height),dist(cx,cy,width,height))*1.1;
+  let fadeStart = DEADZONE >= 1 ? maxR*2 : maxR*DEADZONE;
 
-  for (let i=0;i<gapsList.length;i++) {
-    let r=CENTER_R+THICK/2+i*THICK;
-    let sorted=gapsList[i].slice().sort((a,b)=>a.s-b.s);
-    let arcs=[]; let prev=0;
-    for (let g of sorted) { if(g.s>prev+0.2) arcs.push({s:prev,e:g.s}); prev=g.e; }
-    if(prev<360) arcs.push({s:prev,e:360});
+  let pg = createGraphics(width, height);
+  pg.clear();
+  pg.angleMode(DEGREES);
+  pg.strokeCap(SQUARE);
+  pg.noFill();
 
-    for (let a of arcs) {
-      if(a.e-a.s<0.5) continue;
-      let span=min(a.e-a.s,359.9);
-      let s1=radians(a.s), e1=radians(a.s+span);
-      let x1=cx+r*cos(s1), y1=cy+r*sin(s1);
-      let x2=cx+r*cos(e1), y2=cy+r*sin(e1);
-      let large=span>180?1:0;
-      svgParts.push(`<path d="M${x1},${y1} A${r},${r} 0 ${large},1 ${x2},${y2}"
-        fill="none" stroke="${RING_COLOR}" stroke-width="${sw}" stroke-linecap="square"/>`);
+  pg.push();
+  pg.translate(cx,cy);
+  pg.scale(SCALE);
+  pg.translate(-cx,-cy);
+
+  let rings = animating
+    ? allRings.map(r=>({gaps:r.gaps,baseIndex:r.baseIndex}))
+    : gapsList.map((gaps,i)=>({gaps,baseIndex:i}));
+
+  for (let ring of rings) {
+    let r = animating
+      ? CENTER_R+THICK/2+ring.baseIndex*THICK+offset
+      : CENTER_R+THICK/2+ring.baseIndex*THICK;
+    let alpha = r>fadeStart ? map(r,fadeStart,maxR,255,0) : 255;
+    alpha = constrain(alpha,0,255);
+    if (alpha<=0) continue;
+
+    let sorted = ring.gaps.slice().sort((a,b)=>a.s-b.s);
+    let arcs=[],prev=0;
+    for (let g of sorted){if(g.s>prev+0.2)arcs.push({s:prev,e:g.s});prev=g.e;}
+    if (prev<360) arcs.push({s:prev,e:360});
+
+    let c = pg.color(RING_COLOR); c.setAlpha(alpha);
+    pg.stroke(c); pg.strokeWeight(sw);
+    let rotOff = ringAngles[ring.baseIndex]||0;
+    for (let a of arcs){
+      let span=a.e-a.s; if(span<0.5)continue;
+      if(span>=360)span=359.9;
+      pg.arc(cx,cy,r*2,r*2,a.s+rotOff,a.s+rotOff+span);
     }
   }
-  svgParts.push(`<circle cx="${cx}" cy="${cy}" r="${CENTER_R}" fill="#05051a"/>`);
-  svgParts.push('</svg>');
 
-  let blob=new Blob([svgParts.join('\n')],{type:'image/svg+xml'});
-  let a=document.createElement('a');
-  a.href=URL.createObjectURL(blob); a.download='pattern.svg'; a.click();
+  pg.noStroke(); pg.fill(0,0,0,0);
+  pg.circle(cx,cy,CENTER_R*2);
+  pg.pop();
+
+  pg.canvas.toBlob(blob=>{
+    let a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download='pattern.png'; a.click();
+  },'image/png');
+  pg.remove();
 }
 
-function exportGIFFrames() {
-  alert('GIF export: press S during animation to save frames as PNG.\nCombine them externally with ffmpeg or ezgif.com');
+// ── SVG صحيح ─────────────────────────────────────────
+function exportSVG() {
+  rd();
+  let cx  = width/2+CX_OFF, cy = height/2+CY_OFF;
+  let sw  = THICK+1;
+  let maxR = max(dist(cx,cy,0,0),dist(cx,cy,width,0),dist(cx,cy,0,height),dist(cx,cy,width,height))*1.1;
+  let fadeStart = DEADZONE>=1 ? maxR*2 : maxR*DEADZONE;
+
+  let svgParts=[
+   `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`,
+    
+    `<g transform="translate(${cx},${cy}) scale(${SCALE}) translate(${-cx},${-cy})">`,
+  ];
+
+  for (let i=0; i<gapsList.length; i++) {
+    let r = CENTER_R+THICK/2+i*THICK;
+    // تجاهل الحلقات الصغيرة جداً — تسبب مشكلة في SVG
+    if (r < sw/2) continue;
+
+    let alpha = r>fadeStart ? map(r,fadeStart,maxR,255,0) : 255;
+    alpha = constrain(alpha,0,255);
+    if (alpha<=0) continue;
+
+    let opacity = (alpha/255).toFixed(3);
+    let rotOff  = ringAngles[i]||0;
+
+    let sorted = gapsList[i].slice().sort((a,b)=>a.s-b.s);
+    let arcs=[],prev=0;
+    for (let g of sorted){if(g.s>prev+0.2)arcs.push({s:prev,e:g.s});prev=g.e;}
+    if (prev<360) arcs.push({s:prev,e:360});
+
+    for (let a of arcs){
+      let span = a.e-a.s;
+      if (span < 1) continue;          // تجاهل الأقواس الصغيرة جداً
+      if (span >= 360) span = 359.5;
+
+      let startDeg = a.s+rotOff;
+      let endDeg   = startDeg+span;
+      let s1 = startDeg*Math.PI/180;
+      let e1 = endDeg  *Math.PI/180;
+      let x1 = cx+r*Math.cos(s1), y1 = cy+r*Math.sin(s1);
+      let x2 = cx+r*Math.cos(e1), y2 = cy+r*Math.sin(e1);
+      let large = span>180 ? 1 : 0;
+
+      svgParts.push(
+        `<path d="M${x1.toFixed(1)},${y1.toFixed(1)} A${r},${r} 0 ${large},1 ${x2.toFixed(1)},${y2.toFixed(1)}" `+
+        `fill="none" stroke="${RING_COLOR}" stroke-width="${sw}" stroke-linecap="butt" opacity="${opacity}"/>`
+      );
+    }
+  }
+
+  // دائرة المركز
+  svgParts.push(`<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${CENTER_R}" fill="none"/>`);
+  svgParts.push('</g></svg>');
+
+  let blob = new Blob([svgParts.join('\n')],{type:'image/svg+xml;charset=utf-8'});
+  let a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'pattern.svg';
+  a.click();
 }
+
+// ── Video Recording (WebM) ────────────────────────────
+let mediaRecorder = null;
+let recordedChunks = [];
+let gifRecording = false;
+
+function startGIFRecording(btn) {
+  if (!animating) { alert('Start animation first.'); return; }
+  if (gifRecording) return;
+
+  let canvas = document.querySelector('canvas');
+  let stream = canvas.captureStream(60);
+
+  // اختر أفضل format متاح
+  let mimeType = '';
+  if (MediaRecorder.isTypeSupported('video/webm;codecs=vp9'))
+    mimeType = 'video/webm;codecs=vp9';
+  else if (MediaRecorder.isTypeSupported('video/webm'))
+    mimeType = 'video/webm';
+  else if (MediaRecorder.isTypeSupported('video/mp4'))
+    mimeType = 'video/mp4';
+
+  recordedChunks = [];
+  mediaRecorder = new MediaRecorder(stream, mimeType ? {mimeType} : {});
+
+  mediaRecorder.ondataavailable = e => {
+    if (e.data.size > 0) recordedChunks.push(e.data);
+  };
+
+  mediaRecorder.onstop = () => {
+    let ext  = mimeType.includes('mp4') ? 'mp4' : 'webm';
+    let blob = new Blob(recordedChunks, {type: mimeType || 'video/webm'});
+    let a    = document.createElement('a');
+    a.href   = URL.createObjectURL(blob);
+    a.download = `pattern.${ext}`;
+    a.click();
+    gifRecording = false;
+    btn.html('⏺  Record Video');
+    btn.style('color:#00ff78');
+  };
+
+  mediaRecorder.start();
+  gifRecording = true;
+  btn.html('⏹  Stop Recording');
+  btn.style('color:#ff4d4d');
+
+  // إيقاف تلقائي بعد 5 ثوان
+  setTimeout(() => {
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+      mediaRecorder.stop();
+    }
+  }, 5000);
+}
+
+function exportGIFFrames() {}
 
 // ════════════════════════════════════════════════════
 function windowResized() { resizeCanvas(windowWidth,windowHeight); if(!animating)redraw(); }
