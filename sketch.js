@@ -95,11 +95,11 @@ function buildUI() {
   // Logo SVG placeholder (حلقة صغيرة)
   let logo = createDiv('');
   logo.parent(titleRow);
-  logo.html(`<svg width="28" height="28" viewBox="0 0 28 28">
-    <circle cx="14" cy="14" r="11" fill="none" stroke="#00ff78" stroke-width="2.5" stroke-dasharray="22 8" stroke-linecap="square"/>
-    <circle cx="14" cy="14" r="6" fill="none" stroke="#00ff78" stroke-width="2" stroke-dasharray="12 5" stroke-linecap="square"/>
-    <circle cx="14" cy="14" r="2.5" fill="#00ff78"/>
-  </svg>`);
+ logo.html(`
+<svg width="28" height="28" viewBox="0 0 188.02 262.04" xmlns="http://www.w3.org/2000/svg">
+  <path fill="#00ff78" d="M1.59,0v45.4h156.28L187.85.25l.17-.25H1.59ZM186.9,146.94c-1.02-35.12-20.18-61.8-45.29-76.81l-25.12,37.96c12.84,6.94,23.92,19.72,24.95,38.85.06.97.08,1.94.08,2.94,0,28.07-17.23,42.59-35.47,57.96-3.97,3.33-8.06,6.78-11.97,10.45v-20.2c-19.64,0-48.69-15.33-48.69-48.21H0c0,50.13,36.7,83.68,75.94,91.72-2.84,6.08-4.57,12.83-4.57,20.45h45.41c0-3.89,11.15-13.27,18.53-19.5,20.55-17.31,51.62-43.5,51.62-92.67,0-.98-.01-1.96-.04-2.94Z"/>
+</svg>
+`);
 
   let titleTxt = createDiv('PATTERN<br>GENERATOR');
   titleTxt.parent(titleRow);
