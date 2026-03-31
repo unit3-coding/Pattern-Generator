@@ -120,21 +120,6 @@ function buildUI() {
   mkBtn(bRow, '⟳  New', '#00ff66', '#05051a', () => { stopAnim(); genPattern(); redraw(); });
   mkBtn(bRow, '▶  Animate', 'transparent', '#00ff66', startAnim);
 
-  let bRow2 = createDiv(''); bRow2.parent(panel);
-  bRow2.style('display:flex;gap:8px;');
-
-  let bP = mkBtn(bRow2, '⏸  Pause', 'transparent', '#00ff6699', () => {
-    if (!animating) return;
-    paused = !paused;
-    if (paused) { noLoop(); bP.html('▶  Resume'); bP.style('color:#00ff66'); }
-    else { loop(); bP.html('⏸  Pause'); bP.style('color:#00ff6699'); }
-  });
-
-  mkBtn(bRow2, '■  Stop', 'transparent', '#ff4d4d88', () => {
-    stopAnim(); bP.html('⏸  Pause'); bP.style('color:#00ff6699');
-    genPattern(); redraw();
-  });
-
   let bRow3 = createDiv(''); bRow3.parent(panel);
   bRow3.style('display:flex;gap:8px;border-top:1px solid #00ff6618;padding-top:8px;');
   mkBtn(bRow3, '↺  Reset All', '#ff4d4d15', '#ff4d4d', () => {
@@ -151,7 +136,6 @@ function buildUI() {
     if(sl_speed)    sl_speed.value(DEF.speed);
     if(sl_intro)    sl_intro.value(DEF.intro);
     if(colorPicker) { colorPicker.value(DEF.color); let h=document.querySelector('.pg-hex'); if(h)h.value=DEF.color; }
-    bP.html('⏸  Pause'); bP.style('color:#00ff6699');
     genPattern(); redraw();
   });
 }
@@ -269,7 +253,27 @@ function mkExportRow(parent) {
   let vBtn = mkBtn(row2, '⏺  Record Video', '#00ff6622', '#00ff66', () => {
     if (!animating) { alert('Start animation first.'); return; }
     if (gifRecording) { mediaRecorder && mediaRecorder.stop(); return; }
-    startVideoRecording(vBtn);
+    startVideoRecording(vBtn, recControls);
+  });
+
+  // Pause & Stop — مخفيان حتى يبدأ التسجيل
+  let recControls = createDiv(''); recControls.parent(col);
+  recControls.style('display:none;gap:7px;');
+
+  let bP = mkBtn(recControls, '⏸  Pause', 'transparent', '#00ff6699', () => {
+    if (!animating) return;
+    paused = !paused;
+    if (paused) { noLoop(); bP.html('▶  Resume'); bP.style('color:#00ff66'); }
+    else        { loop();   bP.html('⏸  Pause');  bP.style('color:#00ff6699'); }
+  });
+
+  mkBtn(recControls, '■  Stop', 'transparent', '#ff4d4d88', () => {
+    stopAnim();
+    bP.html('⏸  Pause'); bP.style('color:#00ff6699');
+    recControls.style('display','none');
+    vBtn.html('⏺  Record Video'); vBtn.style('color:#00ff66');
+    gifRecording = false;
+    genPattern(); redraw();
   });
 }
 
@@ -338,14 +342,37 @@ function genPattern() {
 function mkGaps() {
   let gaps=[], tries=0;
   let n = floor(random(max(1,NG-1), NG+2));
+  // الحد الأدنى لحجم القوس = نصف حجم الفجوة الصغيرة
+  let minArc = max(MING * 0.8, 15);
+
   while (gaps.length<n && tries<2000) {
     tries++;
     let s=random(0,360), e=s+random(MING,MAXG);
     let ok=true;
-    for (let g of gaps) { if(s<g.e+6&&e>g.s-6){ok=false;break;} }
+    for (let g of gaps) {
+      if(s<g.e+minArc&&e>g.s-minArc){ok=false;break;}
+    }
     if(ok) gaps.push({s,e});
   }
-  return gaps;
+
+  // تحقق: احذف الفجوات التي تخلق أقواساً صغيرة جداً
+  gaps.sort((a,b)=>a.s-b.s);
+  let filtered = [];
+  let prev = 0;
+  for (let g of gaps) {
+    // القوس قبل هذه الفجوة
+    if (g.s - prev >= minArc) {
+      filtered.push(g);
+      prev = g.e;
+    }
+  }
+  // القوس الأخير (من آخر فجوة إلى 360)
+  if (filtered.length > 0) {
+    let last = filtered[filtered.length-1];
+    if (360 - last.e < minArc) filtered.pop(); // احذف الفجوة إذا القوس الأخير صغير
+  }
+
+  return filtered.length > 0 ? filtered : gaps.slice(0,1);
 }
 
 // ════════════════════════════════════════════════════
@@ -371,7 +398,7 @@ function drawRing(cx,cy,r,gaps,sw,alpha,progress,rotOff) {
     let el=easeInOut(constrain((progress-ss)/den,0,1));
     if(el<=0.001)continue;
     let a=arcs[i], span=(a.e-a.s)*el;
-    if(span<0.5)continue;
+    if(span<2)continue;  // تجاهل الأقواس الأقل من 2 درجة
     if(span>=360)span=359.9;
     arc(cx,cy,r*2,r*2, a.s+rotOff, a.s+rotOff+span);
   }
@@ -562,7 +589,7 @@ function exportSVG() {
   let a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='pattern.svg'; a.click();
 }
 
-function startVideoRecording(btn) {
+function startVideoRecording(btn, recControls) {
   let canvas=document.querySelector('canvas');
   let stream=canvas.captureStream(60);
   let mimeType='';
@@ -576,10 +603,13 @@ function startVideoRecording(btn) {
     let ext=mimeType.includes('mp4')?'mp4':'webm';
     let blob=new Blob(recordedChunks,{type:mimeType||'video/webm'});
     let a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`pattern.${ext}`; a.click();
-    gifRecording=false; btn.html('⏺  Record Video'); btn.style('color:#00ff66');
+    gifRecording=false;
+    btn.html('⏺  Record Video'); btn.style('color:#00ff66');
+    if(recControls) recControls.style('display','none');
   };
   mediaRecorder.start(); gifRecording=true;
   btn.html('⏹  Stop (10s)'); btn.style('color:#ff4d4d');
+  if(recControls) recControls.style('display','flex');
   setTimeout(()=>{if(mediaRecorder&&mediaRecorder.state==='recording')mediaRecorder.stop();},10000);
 }
 
